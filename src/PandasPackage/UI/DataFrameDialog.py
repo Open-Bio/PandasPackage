@@ -9,14 +9,24 @@ import pandas as pd
 
 
 class PandasTableModel(QtCore.QAbstractTableModel):
-    """Table model for pandas DataFrame with efficient data access."""
+    """Table model for pandas DataFrame with efficient data access and pagination."""
 
     def __init__(self, dataframe=None, parent=None):
         super(PandasTableModel, self).__init__(parent)
         self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
+        # 分页相关属性
+        self._page_size = 10  # 默认每页 10 行
+        self._current_page = 0
+        self._show_all = False  # 是否显示全部
 
     def rowCount(self, parent=QtCore.QModelIndex()):
-        return len(self._dataframe)
+        if self._show_all:
+            return len(self._dataframe)
+        else:
+            # 返回当前页的行数
+            total_rows = len(self._dataframe)
+            start_row = self._current_page * self._page_size
+            return min(self._page_size, total_rows - start_row)
 
     def columnCount(self, parent=QtCore.QModelIndex()):
         return len(self._dataframe.columns)
@@ -25,8 +35,14 @@ class PandasTableModel(QtCore.QAbstractTableModel):
         if not index.isValid():
             return None
 
+        # 调整索引以访问正确的数据行
+        if self._show_all:
+            actual_row = index.row()
+        else:
+            actual_row = self._current_page * self._page_size + index.row()
+
         if role == QtCore.Qt.DisplayRole or role == QtCore.Qt.EditRole:
-            value = self._dataframe.iloc[index.row(), index.column()]
+            value = self._dataframe.iloc[actual_row, index.column()]
             if pd.isna(value):
                 return ""
             return str(value)
@@ -44,18 +60,53 @@ class PandasTableModel(QtCore.QAbstractTableModel):
             if orientation == QtCore.Qt.Horizontal:
                 return str(self._dataframe.columns[section])
             elif orientation == QtCore.Qt.Vertical:
-                return str(self._dataframe.index[section])
+                # 调整行索引显示
+                if self._show_all:
+                    actual_row = section
+                else:
+                    actual_row = self._current_page * self._page_size + section
+                return str(self._dataframe.index[actual_row])
         return None
 
     def setDataFrame(self, dataframe):
         """Update the model with a new DataFrame."""
         self.beginResetModel()
         self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
+        self._current_page = 0  # 重置到第一页
         self.endResetModel()
 
     def getDataFrame(self):
         """Get the current DataFrame."""
         return self._dataframe
+
+    def setPageSize(self, size):
+        """设置每页行数，-1 表示显示全部"""
+        if size == -1:
+            self._show_all = True
+        else:
+            self._show_all = False
+            self._page_size = size
+        self._current_page = 0
+        self.beginResetModel()
+        self.endResetModel()
+
+    def setCurrentPage(self, page):
+        """设置当前页"""
+        self._current_page = page
+        self.beginResetModel()
+        self.endResetModel()
+
+    def getTotalPages(self):
+        """获取总页数"""
+        if self._show_all or len(self._dataframe) == 0:
+            return 1
+        return (len(self._dataframe) - 1) // self._page_size + 1
+
+    def getCurrentPage(self):
+        return self._current_page
+
+    def getPageSize(self):
+        return self._page_size if not self._show_all else -1
 
 
 class DataFrameDialog(QtWidgets.QDialog):
@@ -85,6 +136,31 @@ class DataFrameDialog(QtWidgets.QDialog):
         infoLayout.addWidget(self.infoLabel)
 
         infoLayout.addStretch()
+
+        # 分页控件
+        paginationLayout = QtWidgets.QHBoxLayout()
+        paginationLayout.addWidget(QtWidgets.QLabel("每页行数:"))
+
+        self.pageSizeCombo = QtWidgets.QComboBox()
+        self.pageSizeCombo.addItems(["10", "50", "100", "500", "全部"])
+        self.pageSizeCombo.setCurrentIndex(0)  # 默认 10 行
+        self.pageSizeCombo.currentIndexChanged.connect(self.onPageSizeChanged)
+        paginationLayout.addWidget(self.pageSizeCombo)
+
+        self.prevPageBtn = QtWidgets.QPushButton("◀")
+        self.prevPageBtn.setMaximumWidth(30)
+        self.prevPageBtn.clicked.connect(self.onPrevPage)
+        paginationLayout.addWidget(self.prevPageBtn)
+
+        self.pageLabel = QtWidgets.QLabel("1/1")
+        paginationLayout.addWidget(self.pageLabel)
+
+        self.nextPageBtn = QtWidgets.QPushButton("▶")
+        self.nextPageBtn.setMaximumWidth(30)
+        self.nextPageBtn.clicked.connect(self.onNextPage)
+        paginationLayout.addWidget(self.nextPageBtn)
+
+        infoLayout.addLayout(paginationLayout)
 
         # Search box
         self.searchBox = QtWidgets.QLineEdit()
@@ -167,6 +243,43 @@ class DataFrameDialog(QtWidgets.QDialog):
         # Update statistics if panel is open
         if self.statsGroup.isChecked():
             self.updateStatistics()
+
+        # 更新分页 UI
+        self.updatePaginationUI()
+
+    def onPageSizeChanged(self, index):
+        """处理每页行数变化"""
+        page_sizes = [10, 50, 100, 500, -1]  # -1 表示全部
+        page_size = page_sizes[index]
+        self.model.setPageSize(page_size)
+        self.updatePaginationUI()
+
+    def onPrevPage(self):
+        """上一页"""
+        current = self.model.getCurrentPage()
+        if current > 0:
+            self.model.setCurrentPage(current - 1)
+            self.updatePaginationUI()
+
+    def onNextPage(self):
+        """下一页"""
+        current = self.model.getCurrentPage()
+        total = self.model.getTotalPages()
+        if current < total - 1:
+            self.model.setCurrentPage(current + 1)
+            self.updatePaginationUI()
+
+    def updatePaginationUI(self):
+        """更新分页 UI 状态"""
+        current = self.model.getCurrentPage()
+        total = self.model.getTotalPages()
+        
+        self.pageLabel.setText(f"{current + 1}/{total}")
+        
+        # 显示全部时禁用翻页按钮
+        show_all = self.model.getPageSize() == -1
+        self.prevPageBtn.setEnabled(not show_all and current > 0)
+        self.nextPageBtn.setEnabled(not show_all and current < total - 1)
 
     def onSearchChanged(self, text):
         """Handle search text changes."""
