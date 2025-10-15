@@ -297,10 +297,10 @@ class UIDataAnalysisBaseNode(UINodeBase):
         # Don't call super() here to prevent further event propagation
         event.accept()
 
-    def kill(self):
+    def kill(self, *args, **kwargs):
         """Override kill method to clean up dialogs."""
         # Close properties dialog if open
         if self.propertiesDialog:
             self.propertiesDialog.close()
         # Call parent kill method
-        super(UIDataAnalysisBaseNode, self).kill()
+        super(UIDataAnalysisBaseNode, self).kill(*args, **kwargs)
