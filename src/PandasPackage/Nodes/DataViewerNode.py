@@ -44,8 +44,14 @@ class DataViewerNode(NodeBase):
 
             # Get or create the data viewer tool
             viewer = self._wrapper.canvasRef().uflowInstance.invokeDockToolByName(
-                "uflowDataAnalysis", "DataViewer"
+                "PandasPackage", "DataViewer"
             )
+
+            # Check if viewer was created successfully
+            if viewer is None:
+                print("Warning: Failed to create DataViewer tool")
+                self.outExec.call()
+                return
 
             if isinstance(inputData, list):
                 # Handle multiple DataFrames
