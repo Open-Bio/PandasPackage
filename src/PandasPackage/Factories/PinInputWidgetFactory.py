@@ -201,16 +201,217 @@ class TextEditWidget(InputWidgetSingle):
         self.textEdit.setPlainText(str(val))
 
 
-def getInputWidget(dataType, dataSetter, defaultValue, widgetVariant, **kwargs):
+class PathInputWidget(InputWidgetSingle):
     """
-    Factory function for creating input widgets
+    使用系统原生对话框的路径输入控件
+    
+    为 StringPin 提供路径输入功能，使用系统原生文件对话框而不是 Qt 自定义 UI 对话框。
+    支持文件选择、目录选择和通用路径选择三种模式。
+    
+    继承层次：
+    InputWidgetSingle <- PathInputWidget
+    
+    关键方法：
+    - __init__: 创建控件并连接信号
+    - getPath: 打开系统原生文件对话框
+    - setWidgetValue: 设置控件的显示值
+    - blockWidgetSignals: 阻止信号（避免循环更新）
+    """
+
+    def __init__(self, mode="all", parent=None, **kwds):
+        """
+        初始化路径输入控件
+        
+        参数：
+            mode (str): 路径选择模式
+                - "file": 文件选择模式
+                - "directory": 目录选择模式  
+                - "all": 通用路径选择模式
+            parent: 父控件
+            **kwds: 关键字参数，包含：
+                - dataSetCallback: 数据变化时的回调函数
+                - defaultValue: 默认值
+        
+        作用：
+        - 创建文本输入框和浏览按钮
+        - 连接信号到回调函数
+        - 设置初始状态
+        
+        效果：
+        - 创建一个文本框和 "..." 按钮
+        - 用户点击按钮时打开系统原生文件对话框
+        - 选择路径后更新文本框内容
+        """
+        super(PathInputWidget, self).__init__(parent=parent, **kwds)
+        self.mode = mode
+        
+        # 创建内容容器
+        self.content = QWidget()
+        self.content.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建水平布局
+        self.pathLayout = QHBoxLayout(self.content)
+        self.pathLayout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建文本输入框
+        self.le = QLineEdit()
+        self.le.setContextMenuPolicy(QtCore.Qt.NoContextMenu)
+        self.pathLayout.addWidget(self.le)
+        
+        # 创建浏览按钮
+        self.pbGetPath = QPushButton("...")
+        self.pbGetPath.clicked.connect(self.getPath)
+        self.pathLayout.addWidget(self.pbGetPath)
+        
+        # 设置控件
+        self.setWidget(self.content)
+        
+        # 连接文本变化信号到回调函数
+        # 当用户修改文本时，会调用 dataSetCallback
+        self.le.textChanged.connect(lambda val: self.dataSetCallback(val))
+
+    def getPath(self):
+        """
+        打开系统原生文件对话框选择路径
+        
+        关键区别：直接使用 QFileDialog 的静态方法，使用系统原生对话框
+        而不是自定义的 FileDialog 类，提供更好的系统集成和用户体验。
+        
+        支持的模式：
+        - file: 文件选择对话框
+        - directory: 目录选择对话框
+        - all: 默认使用文件选择对话框
+        """
+        if self.mode == "file":
+            # 文件选择对话框
+            path, _ = QFileDialog.getOpenFileName(
+                self, 
+                "选择文件", 
+                "", 
+                "所有文件 (*.*)"
+            )
+        elif self.mode == "directory":
+            # 目录选择对话框
+            path = QFileDialog.getExistingDirectory(
+                self, 
+                "选择目录"
+            )
+        else:
+            # 默认使用文件选择
+            path, _ = QFileDialog.getOpenFileName(
+                self, 
+                "选择文件", 
+                "", 
+                "所有文件 (*.*)"
+            )
+        
+        # 如果用户选择了路径，更新文本框
+        if path:
+            self.le.setText(path)
+
+    def blockWidgetSignals(self, bLocked):
+        """
+        阻止控件信号
+        
+        参数：
+            bLocked (bool): True 表示阻止信号，False 表示恢复信号
+        
+        作用：
+        - 在程序设置控件值时阻止信号
+        - 避免触发不必要的回调（防止循环更新）
+        
+        使用场景：
+        - 从外部更新控件值时（如从文件加载）
+        - 避免信号循环（setValue -> signal -> setValue -> ...）
+        """
+        self.le.blockSignals(bLocked)
+
+    def setWidgetValue(self, val):
+        """
+        设置控件的显示值
+        
+        参数：
+            val: 要显示的值（字符串或可转换为字符串的类型）
+        
+        作用：
+        - 更新文本框的内容
+        - 反映引脚的当前值
+        
+        触发时机：
+        - 引脚值被程序修改时
+        - 从文件加载图时
+        - 引脚连接断开并恢复默认值时
+        
+        效果：
+        - 文本框显示选中的路径
+        """
+        self.le.setText(str(val))
+
+
+def getInputWidget(
+    dataType, dataSetter, defaultValue, widgetVariant=DEFAULT_WIDGET_VARIANT, **kwds
+):
+    """
+    引脚输入控件工厂函数
+    
+    参数：
+        dataType (str): 引脚的数据类型名称
+        dataSetter (callable): 设置引脚数据的回调函数
+        defaultValue: 引脚的默认值
+        widgetVariant: 控件变体（用于同一类型的不同显示方式）
+        **kwds: 其他关键字参数
+    
+    返回：
+        InputWidget: 对应的输入控件实例，如果不支持则返回 None
+    
+    作用：
+        根据控件变体返回合适的输入控件：
+        - DynamicColumnSelectorWidget: 动态列选择器（用于 DataFrame 列选择）
+        - TextEditWidget: 多行文本编辑器（用于逗号分隔值列表）
+        - PathInputWidget: 路径输入控件（使用系统原生对话框）
+            - FilePathWidget: 文件路径选择
+            - PathWidget: 通用路径选择
+            - FolderPathWidget: 文件夹路径选择
+    
+    添加新控件：
+        if widgetVariant == 'MyCustomWidget':
+            return MyCustomInputWidget(dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds)
+    
+    效果：
+        - 为 PandasPackage 的特定需求提供自定义输入控件
+        - 文件路径控件使用系统原生对话框，提供更好的用户体验
+        - 动态列选择器提供智能的 DataFrame 列名建议
     """
     if widgetVariant == "DynamicColumnSelectorWidget":
         return DynamicColumnSelectorWidget(
-            dataSetCallback=dataSetter, defaultValue=defaultValue, **kwargs
+            dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
         )
     elif widgetVariant == "TextEditWidget":
         return TextEditWidget(
-            dataSetCallback=dataSetter, defaultValue=defaultValue, **kwargs
+            dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
+        )
+    elif widgetVariant == "FilePathWidget":
+        # 文件路径控件 - 使用系统原生对话框
+        return PathInputWidget(
+            mode="file", 
+            dataSetCallback=dataSetter, 
+            defaultValue=defaultValue, 
+            **kwds
+        )
+    elif widgetVariant == "PathWidget":
+        # 通用路径控件 - 使用系统原生对话框
+        return PathInputWidget(
+            mode="all", 
+            dataSetCallback=dataSetter, 
+            defaultValue=defaultValue, 
+            **kwds
+        )
+    elif widgetVariant == "FolderPathWidget":
+        # 文件夹路径控件 - 使用系统原生对话框
+        return PathInputWidget(
+            mode="directory", 
+            dataSetCallback=dataSetter, 
+            defaultValue=defaultValue, 
+            **kwds
         )
     return None
