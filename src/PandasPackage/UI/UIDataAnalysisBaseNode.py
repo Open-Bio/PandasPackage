@@ -7,6 +7,23 @@ from ..UI.DataFrameDialog import DataFrameDialog, MultiDataFrameDialog
 from ..UI.PropertiesDialog import PropertiesDialog
 
 
+class ViewDataFrameNodeActionButton(NodeActionButtonBase):
+    """Custom action button for DataFrame viewing with visual feedback."""
+
+    def __init__(self, svgFilePath, action, uiNode):
+        super(ViewDataFrameNodeActionButton, self).__init__(svgFilePath, action, uiNode)
+        self.svgIcon.setElementId("Expand")
+
+    def mousePressEvent(self, event):
+        super(ViewDataFrameNodeActionButton, self).mousePressEvent(event)
+        # Update icon based on the state that will be AFTER viewDataFrame toggles it
+        # Since viewDataFrame will toggle isDialogVisible, we set the opposite
+        if self.parentItem().isDialogVisible:
+            self.svgIcon.setElementId("Collapse")  # Will be closed after toggle
+        else:
+            self.svgIcon.setElementId("Expand")  # Will be opened after toggle
+
+
 class PropertiesDialogManager:
     """Global manager for properties dialogs to prevent conflicts."""
 
@@ -108,7 +125,7 @@ class UIDataAnalysisBaseNode(UINodeBase):
             )
 
             self.actionViewDataFrame.setData(
-                NodeActionButtonInfo(viewIconPath, NodeActionButtonBase)
+                NodeActionButtonInfo(viewIconPath, ViewDataFrameNodeActionButton)
             )
 
             # Create refresh action and button
@@ -141,6 +158,9 @@ class UIDataAnalysisBaseNode(UINodeBase):
         else:
             # Close dialog
             self.closeDataFrameDialog()
+        
+        # Force refresh data when toggling (like OpenCV's refreshImage)
+        self.refreshData()
 
     def showDataFrameDialog(self):
         """Show the DataFrame viewer dialog."""
