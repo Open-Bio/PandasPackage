@@ -4,6 +4,9 @@ from uflow.UI.Canvas.UINodeBase import UINodeBase
 from uflow.UI.Canvas.NodeActionButton import NodeActionButtonBase
 from uflow.UI.Canvas.UICommon import NodeActionButtonInfo
 from ..UI.DataFrameDialog import DataFrameDialog, MultiDataFrameDialog
+from ..UI.FigureDialog import FigureDialog
+from ..UI.MixedDataViewerDialog import MixedDataViewerDialog
+from ..Pins import DATAFRAME_PIN, MPL_FIGURE_PIN
 from ..UI.PropertiesDialog import PropertiesDialog
 
 
@@ -80,29 +83,34 @@ class PropertiesDialogManager:
 
 
 class UIDataAnalysisBaseNode(UINodeBase):
-    """Base UI class for all DataAnalysis nodes with popup DataFrame viewer.
+    """Base UI class for all DataAnalysis nodes with popup data viewer.
 
     Provides two buttons:
-    - View button: Toggle auto-updating DataFrame viewer dialog
+    - View button: Toggle auto-updating data viewer dialog (supports DataFrame and Figure)
     - Refresh button: Forces node recomputation
     """
 
     def __init__(self, raw_node):
         super(UIDataAnalysisBaseNode, self).__init__(raw_node)
 
-        # Collect all DataFramePin outputs
+        # Collect all viewable pins (DataFramePin and MatplotlibFigurePin)
         self.dataFramePins = []
+        self.figurePins = []
 
         # Check output pins first
         for pin in self._rawNode.outputs.values():
-            if pin.dataType == "DataFramePin":
+            if pin.dataType == DATAFRAME_PIN:
                 self.dataFramePins.append(pin)
+            elif pin.dataType == MPL_FIGURE_PIN:
+                self.figurePins.append(pin)
 
         # If no output pins, check input pins
-        if not self.dataFramePins:
+        if not self.dataFramePins and not self.figurePins:
             for pin in self._rawNode.inputs.values():
-                if pin.dataType == "DataFramePin":
+                if pin.dataType == DATAFRAME_PIN:
                     self.dataFramePins.append(pin)
+                elif pin.dataType == MPL_FIGURE_PIN:
+                    self.figurePins.append(pin)
 
         # Track dialog state (like OpenCV's displayImage)
         self.viewerDialog = None
@@ -113,18 +121,18 @@ class UIDataAnalysisBaseNode(UINodeBase):
         self.isPropertiesDialogVisible = False
         self.dialogManager = PropertiesDialogManager()
 
-        # If node has DataFrame pins, add view and refresh buttons
-        if self.dataFramePins:
+        # If node has viewable pins, add view and refresh buttons
+        if self.dataFramePins or self.figurePins:
             # Create view action and button (toggle dialog)
-            self.actionViewDataFrame = self._menu.addAction("ViewDataFrame")
-            self.actionViewDataFrame.setToolTip("Toggle DataFrame viewer dialog")
-            self.actionViewDataFrame.triggered.connect(self.viewDataFrame)
+            self.actionViewData = self._menu.addAction("ViewData")
+            self.actionViewData.setToolTip("Toggle data viewer dialog")
+            self.actionViewData.triggered.connect(self.viewData)
 
             viewIconPath = os.path.join(
                 os.path.dirname(__file__), "resources", "view.svg"
             )
 
-            self.actionViewDataFrame.setData(
+            self.actionViewData.setData(
                 NodeActionButtonInfo(viewIconPath, ViewDataFrameNodeActionButton)
             )
 
@@ -144,9 +152,9 @@ class UIDataAnalysisBaseNode(UINodeBase):
         # Connect to computed signal for auto-update (like OpenCV)
         self._rawNode.computed.connect(self.onNodeComputed)
 
-    def viewDataFrame(self):
-        """Toggle DataFrame viewer dialog (like OpenCV's viewImage)."""
-        if not self.dataFramePins:
+    def viewData(self):
+        """Toggle data viewer dialog (like OpenCV's viewImage)."""
+        if not self.dataFramePins and not self.figurePins:
             return
 
         # Toggle state
@@ -154,41 +162,95 @@ class UIDataAnalysisBaseNode(UINodeBase):
 
         if self.isDialogVisible:
             # Open/show dialog
-            self.showDataFrameDialog()
+            self.showViewerDialog()
         else:
             # Close dialog
-            self.closeDataFrameDialog()
+            self.closeViewerDialog()
         
         # Force refresh data when toggling (like OpenCV's refreshImage)
         self.refreshData()
 
-    def showDataFrameDialog(self):
-        """Show the DataFrame viewer dialog."""
+    def showViewerDialog(self):
+        """Show the appropriate viewer dialog based on available pin types."""
+        from qtpy import QtWidgets
+
         # Collect data from all pins
         dataframes_dict = {}
+        figures_dict = {}
+        pins_data_dict = {}
+
         for pin in self.dataFramePins:
             df = pin.getData()
+            # Include even empty DataFrames (they can be displayed)
             if df is not None:
                 dataframes_dict[pin.name] = df
+                pins_data_dict[pin.name] = ("DataFramePin", df)
 
-        if not dataframes_dict:
-            # No data to display
-            from qtpy import QtWidgets
+        for pin in self.figurePins:
+            fig = pin.getData()
+            # Only include non-None figures (None means no plot generated yet)
+            if fig is not None:
+                figures_dict[pin.name] = fig
+                pins_data_dict[pin.name] = ("MatplotlibFigurePin", fig)
 
-            QtWidgets.QMessageBox.information(
-                None, "No Data", "No DataFrame data available to display."
-            )
-            self.isDialogVisible = False
-            return
+        # Only show warning if we have pins but no data
+        # If there are no pins at all, don't show warning (node doesn't support preview)
+        has_any_pins = len(self.dataFramePins) > 0 or len(self.figurePins) > 0
+        
+        if not pins_data_dict:
+            if has_any_pins:
+                # We have pins but no data - node may not have executed yet
+                # Still show dialog but with empty/placeholder content
+                # This allows user to see the dialog and wait for data
+                pass
+            else:
+                # No pins at all - this shouldn't happen if we got here, but handle gracefully
+                QtWidgets.QMessageBox.information(
+                    None, "No Data", "No data available to display."
+                )
+                self.isDialogVisible = False
+                return
 
-        # Create and show appropriate dialog
-        if len(dataframes_dict) == 1:
-            # Single DataFrame - use simple dialog
-            pin_name, dataframe = list(dataframes_dict.items())[0]
-            self.viewerDialog = DataFrameDialog(dataframe, pin_name, parent=None)
+        # Determine which dialog to use based on pin types
+        has_dataframes = len(dataframes_dict) > 0
+        has_figures = len(figures_dict) > 0
+        total_pins = len(pins_data_dict)
+        
+        # If no data but we have pins, create empty dialog with placeholder
+        if not pins_data_dict and has_any_pins:
+            # Create a mixed dialog with empty data to show placeholder
+            empty_pins_dict = {}
+            # Add placeholder entries for pins without data
+            for pin in self.dataFramePins:
+                empty_pins_dict[pin.name] = (DATAFRAME_PIN, pd.DataFrame())
+            for pin in self.figurePins:
+                empty_pins_dict[pin.name] = (MPL_FIGURE_PIN, None)
+            self.viewerDialog = MixedDataViewerDialog(empty_pins_dict, parent=None)
+        elif has_dataframes and has_figures:
+            # Mixed types - use MixedDataViewerDialog
+            self.viewerDialog = MixedDataViewerDialog(pins_data_dict, parent=None)
+        elif has_figures and not has_dataframes:
+            # Only figures
+            if total_pins == 1:
+                # Single figure - use simple dialog
+                pin_name, (_, figure) = list(pins_data_dict.items())[0]
+                self.viewerDialog = FigureDialog(figure, pin_name, parent=None)
+            else:
+                # Multiple figures - use mixed dialog
+                self.viewerDialog = MixedDataViewerDialog(pins_data_dict, parent=None)
+        elif has_dataframes and not has_figures:
+            # Only dataframes - use existing DataFrame dialogs
+            if total_pins == 1:
+                # Single DataFrame - use simple dialog
+                pin_name, dataframe = list(dataframes_dict.items())[0]
+                self.viewerDialog = DataFrameDialog(dataframe, pin_name, parent=None)
+            else:
+                # Multiple DataFrames - use tabbed dialog
+                self.viewerDialog = MultiDataFrameDialog(dataframes_dict, parent=None)
         else:
-            # Multiple DataFrames - use tabbed dialog
-            self.viewerDialog = MultiDataFrameDialog(dataframes_dict, parent=None)
+            # Should not reach here if we handled empty case above
+            # But handle gracefully just in case
+            pass
 
         # Connect dialog close to update state
         self.viewerDialog.finished.connect(self.onDialogClosed)
@@ -196,8 +258,8 @@ class UIDataAnalysisBaseNode(UINodeBase):
         # Show as non-modal (allows interaction with graph while open)
         self.viewerDialog.show()
 
-    def closeDataFrameDialog(self):
-        """Close the DataFrame viewer dialog."""
+    def closeViewerDialog(self):
+        """Close the viewer dialog."""
         if self.viewerDialog:
             self.viewerDialog.close()
             self.viewerDialog = None
@@ -214,10 +276,20 @@ class UIDataAnalysisBaseNode(UINodeBase):
 
         # Collect fresh data
         dataframes_dict = {}
+        figures_dict = {}
+        pins_data_dict = {}
+
         for pin in self.dataFramePins:
             df = pin.getData()
             if df is not None:
                 dataframes_dict[pin.name] = df
+                pins_data_dict[pin.name] = (DATAFRAME_PIN, df)
+
+        for pin in self.figurePins:
+            fig = pin.getData()
+            if fig is not None:
+                figures_dict[pin.name] = fig
+                pins_data_dict[pin.name] = (MPL_FIGURE_PIN, fig)
 
         # Update dialog based on type
         if isinstance(self.viewerDialog, DataFrameDialog):
@@ -225,15 +297,23 @@ class UIDataAnalysisBaseNode(UINodeBase):
             if dataframes_dict:
                 pin_name, dataframe = list(dataframes_dict.items())[0]
                 self.viewerDialog.setDataFrame(dataframe)
+        elif isinstance(self.viewerDialog, FigureDialog):
+            # Single Figure dialog
+            if figures_dict:
+                pin_name, figure = list(figures_dict.items())[0]
+                self.viewerDialog.setFigure(figure)
         elif isinstance(self.viewerDialog, MultiDataFrameDialog):
             # Multi DataFrame dialog - need to recreate (simpler than updating tabs)
             # Close current and open new one
-            self.closeDataFrameDialog()
-            self.showDataFrameDialog()
+            self.closeViewerDialog()
+            self.showViewerDialog()
+        elif isinstance(self.viewerDialog, MixedDataViewerDialog):
+            # Mixed dialog - update all pins
+            self.viewerDialog.updateAllPins(pins_data_dict)
 
     def refreshData(self):
         """Refresh button handler - force node recomputation."""
-        if self.dataFramePins:
+        if self.dataFramePins or self.figurePins:
             self._rawNode.processNode()
 
     def onNodeComputed(self, *args, **kwargs):

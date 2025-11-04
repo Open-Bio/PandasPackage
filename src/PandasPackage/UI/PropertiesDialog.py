@@ -7,16 +7,19 @@ with window state persistence and support for multiple instances.
 
 from qtpy import QtWidgets, QtCore, QtGui
 from uflow.UI.Widgets.PropertiesFramework import PropertiesWidget
+from ._dialog_persistence import PersistentGeometryDialogMixin
 
 
-class PropertiesDialog(QtWidgets.QDialog):
-    """Non-modal dialog for displaying node properties with floating window support."""
+class PropertiesDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
+    """非模态属性对话框，支持悬浮显示与几何信息持久化（通过 Mixin 统一实现）。"""
 
     def __init__(self, node=None, parent=None):
         super(PropertiesDialog, self).__init__(parent)
         self.node = node
+        # 保留原 settings，Mixin 会优先使用此实例
         self.settings = QtCore.QSettings("uflow", "PropertiesDialog")
         self.setupUI()
+        # 统一通过 Mixin 恢复几何信息
         self.restoreWindowGeometry()
 
     def setupUI(self):
@@ -66,35 +69,4 @@ class PropertiesDialog(QtWidgets.QDialog):
         self.node = None
         self.setWindowTitle("Node Properties")
 
-    def restoreWindowGeometry(self):
-        """Restore window position and size from settings."""
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            # First time: center on screen
-            self.centerOnScreen()
-
-    def centerOnScreen(self):
-        """Center the dialog on the screen."""
-        screen = QtWidgets.QApplication.primaryScreen()
-        if screen:
-            screenGeometry = screen.availableGeometry()
-            x = (screenGeometry.width() - self.width()) // 2
-            y = (screenGeometry.height() - self.height()) // 2
-            self.move(x, y)
-
-    def closeEvent(self, event):
-        """Save window geometry when closing."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(PropertiesDialog, self).closeEvent(event)
-
-    def accept(self):
-        """Save geometry before accepting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(PropertiesDialog, self).accept()
-
-    def reject(self):
-        """Save geometry before rejecting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(PropertiesDialog, self).reject()
+    # 恢复/保存几何信息与关闭、接受、拒绝的逻辑由 Mixin 统一处理
