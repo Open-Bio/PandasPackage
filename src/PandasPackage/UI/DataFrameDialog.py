@@ -6,119 +6,22 @@ Uses Qt Model/View architecture for better performance with large datasets.
 
 from qtpy import QtWidgets, QtCore, QtGui
 import pandas as pd
+from ._dialog_persistence import PersistentGeometryDialogMixin
+from ._pandas_table_model import PandasTableModel
 
 
-class PandasTableModel(QtCore.QAbstractTableModel):
-    """Table model for pandas DataFrame with efficient data access and pagination."""
-
-    def __init__(self, dataframe=None, parent=None):
-        super(PandasTableModel, self).__init__(parent)
-        self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
-        # 分页相关属性
-        self._page_size = 10  # 默认每页 10 行
-        self._current_page = 0
-        self._show_all = False  # 是否显示全部
-
-    def rowCount(self, parent=QtCore.QModelIndex()):
-        if self._show_all:
-            return len(self._dataframe)
-        else:
-            # 返回当前页的行数
-            total_rows = len(self._dataframe)
-            start_row = self._current_page * self._page_size
-            return min(self._page_size, total_rows - start_row)
-
-    def columnCount(self, parent=QtCore.QModelIndex()):
-        return len(self._dataframe.columns)
-
-    def data(self, index, role=QtCore.Qt.DisplayRole):
-        if not index.isValid():
-            return None
-
-        # 调整索引以访问正确的数据行
-        if self._show_all:
-            actual_row = index.row()
-        else:
-            actual_row = self._current_page * self._page_size + index.row()
-
-        if role == QtCore.Qt.DisplayRole or role == QtCore.Qt.EditRole:
-            value = self._dataframe.iloc[actual_row, index.column()]
-            if pd.isna(value):
-                return ""
-            return str(value)
-
-        elif role == QtCore.Qt.TextAlignmentRole:
-            # Right align numeric columns
-            if pd.api.types.is_numeric_dtype(self._dataframe.iloc[:, index.column()]):
-                return QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
-            return QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
-
-        return None
-
-    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if role == QtCore.Qt.DisplayRole:
-            if orientation == QtCore.Qt.Horizontal:
-                return str(self._dataframe.columns[section])
-            elif orientation == QtCore.Qt.Vertical:
-                # 调整行索引显示
-                if self._show_all:
-                    actual_row = section
-                else:
-                    actual_row = self._current_page * self._page_size + section
-                return str(self._dataframe.index[actual_row])
-        return None
-
-    def setDataFrame(self, dataframe):
-        """Update the model with a new DataFrame."""
-        self.beginResetModel()
-        self._dataframe = dataframe if dataframe is not None else pd.DataFrame()
-        self._current_page = 0  # 重置到第一页
-        self.endResetModel()
-
-    def getDataFrame(self):
-        """Get the current DataFrame."""
-        return self._dataframe
-
-    def setPageSize(self, size):
-        """设置每页行数，-1 表示显示全部"""
-        if size == -1:
-            self._show_all = True
-        else:
-            self._show_all = False
-            self._page_size = size
-        self._current_page = 0
-        self.beginResetModel()
-        self.endResetModel()
-
-    def setCurrentPage(self, page):
-        """设置当前页"""
-        self._current_page = page
-        self.beginResetModel()
-        self.endResetModel()
-
-    def getTotalPages(self):
-        """获取总页数"""
-        if self._show_all or len(self._dataframe) == 0:
-            return 1
-        return (len(self._dataframe) - 1) // self._page_size + 1
-
-    def getCurrentPage(self):
-        return self._current_page
-
-    def getPageSize(self):
-        return self._page_size if not self._show_all else -1
-
-
-class DataFrameDialog(QtWidgets.QDialog):
+class DataFrameDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
     """Dialog for displaying DataFrame with pagination, sorting, and filtering."""
 
     def __init__(self, dataframe=None, pin_name="data", parent=None):
         super(DataFrameDialog, self).__init__(parent)
         self.pin_name = pin_name
         self.original_dataframe = dataframe if dataframe is not None else pd.DataFrame()
+        # 保留原 settings，Mixin 会优先使用此实例
         self.settings = QtCore.QSettings("uflow", "DataFrameDialog")
         self.setupUI()
         self.setDataFrame(self.original_dataframe)
+        # 统一通过 Mixin 恢复几何信息
         self.restoreWindowGeometry()
 
     def setupUI(self):
@@ -325,41 +228,10 @@ class DataFrameDialog(QtWidgets.QDialog):
                     self, "Export Error", f"Failed to export: {e}"
                 )
 
-    def restoreWindowGeometry(self):
-        """Restore window position and size from settings."""
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            # First time: center on screen
-            self.centerOnScreen()
-
-    def centerOnScreen(self):
-        """Center the dialog on the screen."""
-        screen = QtWidgets.QApplication.primaryScreen()
-        if screen:
-            screenGeometry = screen.availableGeometry()
-            x = (screenGeometry.width() - self.width()) // 2
-            y = (screenGeometry.height() - self.height()) // 2
-            self.move(x, y)
-
-    def closeEvent(self, event):
-        """Save window geometry when closing."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(DataFrameDialog, self).closeEvent(event)
-
-    def accept(self):
-        """Save geometry before accepting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(DataFrameDialog, self).accept()
-
-    def reject(self):
-        """Save geometry before rejecting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(DataFrameDialog, self).reject()
+    # 几何信息保存/恢复逻辑由 Mixin 统一处理
 
 
-class MultiDataFrameDialog(QtWidgets.QDialog):
+class MultiDataFrameDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
     """Dialog for displaying multiple DataFrames in tabs."""
 
     def __init__(self, dataframes_dict, parent=None):
@@ -369,8 +241,10 @@ class MultiDataFrameDialog(QtWidgets.QDialog):
         """
         super(MultiDataFrameDialog, self).__init__(parent)
         self.dataframes = dataframes_dict
+        # 保留原 settings，Mixin 会优先使用此实例
         self.settings = QtCore.QSettings("uflow", "MultiDataFrameDialog")
         self.setupUI()
+        # 统一通过 Mixin 恢复几何信息
         self.restoreWindowGeometry()
 
     def setupUI(self):
@@ -431,35 +305,4 @@ class MultiDataFrameDialog(QtWidgets.QDialog):
 
         layout.addLayout(buttonLayout)
 
-    def restoreWindowGeometry(self):
-        """Restore window position and size from settings."""
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            # First time: center on screen
-            self.centerOnScreen()
-
-    def centerOnScreen(self):
-        """Center the dialog on the screen."""
-        screen = QtWidgets.QApplication.primaryScreen()
-        if screen:
-            screenGeometry = screen.availableGeometry()
-            x = (screenGeometry.width() - self.width()) // 2
-            y = (screenGeometry.height() - self.height()) // 2
-            self.move(x, y)
-
-    def closeEvent(self, event):
-        """Save window geometry when closing."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(MultiDataFrameDialog, self).closeEvent(event)
-
-    def accept(self):
-        """Save geometry before accepting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(MultiDataFrameDialog, self).accept()
-
-    def reject(self):
-        """Save geometry before rejecting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(MultiDataFrameDialog, self).reject()
+    # 几何信息保存/恢复逻辑由 Mixin 统一处理

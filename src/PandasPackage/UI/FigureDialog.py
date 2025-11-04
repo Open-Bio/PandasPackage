@@ -6,6 +6,7 @@ Simplified dialog for displaying a single Figure with interactive features.
 
 from qtpy import QtWidgets, QtCore, QtGui
 from .PlotViewerWidget import PlotViewerWidget
+from ._dialog_persistence import PersistentGeometryDialogMixin
 
 try:
     import matplotlib.figure
@@ -14,17 +15,24 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-class FigureDialog(QtWidgets.QDialog):
-    """Dialog for displaying a single matplotlib Figure."""
+class FigureDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
+    """用于展示单个 matplotlib Figure 的对话框。
+
+    变更点：
+    - 继承 PersistentGeometryDialogMixin 统一管理窗口几何信息保存/恢复。
+    - 在 closeEvent 中先清理 PlotViewerWidget（断开 matplotlib 回调），再交由 Mixin 保存 geometry。
+    """
 
     def __init__(self, figure=None, pin_name="figure", parent=None):
         super(FigureDialog, self).__init__(parent)
         self.pin_name = pin_name
         self.current_figure = figure
+        # 仍保留原 settings，Mixin 会优先使用此实例，确保兼容旧的持久化位置
         self.settings = QtCore.QSettings("uflow", "FigureDialog")
         self.setupUI()
         if figure is not None:
             self.setFigure(figure)
+        # 统一通过 Mixin 恢复几何信息
         self.restoreWindowGeometry()
 
     def setupUI(self):
@@ -59,42 +67,15 @@ class FigureDialog(QtWidgets.QDialog):
         """Get the current Figure."""
         return self.current_figure
 
-    def restoreWindowGeometry(self):
-        """Restore window position and size from settings."""
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            self.centerOnScreen()
-
-    def centerOnScreen(self):
-        """Center the dialog on the screen."""
-        screen = QtWidgets.QApplication.primaryScreen()
-        if screen:
-            screenGeometry = screen.availableGeometry()
-            x = (screenGeometry.width() - self.width()) // 2
-            y = (screenGeometry.height() - self.height()) // 2
-            self.move(x, y)
-
     def closeEvent(self, event):
-        """Save window geometry when closing."""
-        # Ensure the embedded PlotViewerWidget disconnects callbacks and clears
+        """关闭时先清理 PlotViewerWidget，再交由 Mixin 保存窗口几何信息。"""
+        # 先确保嵌入的 PlotViewerWidget 断开回调并清理
         try:
             if hasattr(self, "plotViewer") and self.plotViewer:
                 self.plotViewer.clear()
         except Exception:
             pass
-        self.settings.setValue("geometry", self.saveGeometry())
+        # 调用 Mixin 的 closeEvent（通过 super）统一保存 geometry
         super(FigureDialog, self).closeEvent(event)
-
-    def accept(self):
-        """Save geometry before accepting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(FigureDialog, self).accept()
-
-    def reject(self):
-        """Save geometry before rejecting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(FigureDialog, self).reject()
 
 

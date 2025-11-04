@@ -9,6 +9,8 @@ from qtpy import QtWidgets, QtCore, QtGui
 import pandas as pd
 from .DataFrameDialog import PandasTableModel
 from .PlotViewerWidget import PlotViewerWidget
+from ._dialog_persistence import PersistentGeometryDialogMixin
+from ..Pins import DATAFRAME_PIN, MPL_FIGURE_PIN
 
 try:
     import matplotlib.figure
@@ -17,8 +19,13 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 
-class MixedDataViewerDialog(QtWidgets.QDialog):
-    """Dialog for displaying multiple pins with mixed data types (DataFrame and Figure)."""
+class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
+    """用于展示多个不同类型（DataFrame 与 Figure）数据的多标签对话框。
+
+    变更点：
+    - 继承 PersistentGeometryDialogMixin，统一管理窗口几何信息保存/恢复。
+    - 使用集中常量 `DATAFRAME_PIN` 与 `MPL_FIGURE_PIN`，避免魔法字符串。
+    """
 
     def __init__(self, pins_data_dict, parent=None):
         """
@@ -29,6 +36,7 @@ class MixedDataViewerDialog(QtWidgets.QDialog):
         """
         super(MixedDataViewerDialog, self).__init__(parent)
         self.pins_data = pins_data_dict
+        # 保留原 settings，Mixin 会优先使用此实例
         self.settings = QtCore.QSettings("uflow", "MixedDataViewerDialog")
         self.setupUI()
         self.restoreWindowGeometry()
@@ -69,10 +77,10 @@ class MixedDataViewerDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        if pin_type == "DataFramePin":
+        if pin_type == DATAFRAME_PIN:
             # Create DataFrame viewer
             widget = self._createDataFrameTab(pin_name, data)
-        elif pin_type == "MatplotlibFigurePin":
+        elif pin_type == MPL_FIGURE_PIN:
             # Create Figure viewer
             widget = self._createFigureTab(pin_name, data)
         else:
@@ -160,11 +168,11 @@ class MixedDataViewerDialog(QtWidgets.QDialog):
             return
 
         # Update existing widget
-        if pin_type == "DataFramePin":
+        if pin_type == DATAFRAME_PIN:
             if hasattr(widget, '_model'):
                 widget._model.setDataFrame(data if data is not None else pd.DataFrame())
                 widget._tableView.resizeColumnsToContents()
-        elif pin_type == "MatplotlibFigurePin":
+        elif pin_type == MPL_FIGURE_PIN:
             if hasattr(widget, '_plotViewer'):
                 widget._plotViewer.setFigure(data)
 
@@ -175,6 +183,7 @@ class MixedDataViewerDialog(QtWidgets.QDialog):
 
     def restoreWindowGeometry(self):
         """Restore window position and size from settings."""
+        # 统一通过 Mixin 恢复几何信息
         geometry = self.settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
@@ -191,27 +200,19 @@ class MixedDataViewerDialog(QtWidgets.QDialog):
             self.move(x, y)
 
     def closeEvent(self, event):
-        """Save window geometry when closing."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        # Proactively clear plot viewers to disconnect matplotlib callbacks
+        """关闭时先清理 Figure 相关 viewer，再交由 Mixin 保存几何信息。"""
+        # 主动清理 matplotlib viewer，断开回调，防止关闭后仍触发事件
         try:
             for pin_name, (pin_type, widget) in list(self.viewer_widgets.items()):
-                if pin_type == "MatplotlibFigurePin" and hasattr(widget, '_plotViewer'):
+                if pin_type == MPL_FIGURE_PIN and hasattr(widget, '_plotViewer'):
                     try:
                         widget._plotViewer.clear()
                     except Exception:
                         pass
         except Exception:
             pass
+        # 交由 Mixin 统一保存 geometry
         super(MixedDataViewerDialog, self).closeEvent(event)
 
-    def accept(self):
-        """Save geometry before accepting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(MixedDataViewerDialog, self).accept()
-
-    def reject(self):
-        """Save geometry before rejecting."""
-        self.settings.setValue("geometry", self.saveGeometry())
-        super(MixedDataViewerDialog, self).reject()
+    # 接受/拒绝的保存逻辑由 Mixin 统一处理，无需重复实现
 

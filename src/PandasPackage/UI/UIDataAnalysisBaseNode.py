@@ -6,6 +6,7 @@ from uflow.UI.Canvas.UICommon import NodeActionButtonInfo
 from ..UI.DataFrameDialog import DataFrameDialog, MultiDataFrameDialog
 from ..UI.FigureDialog import FigureDialog
 from ..UI.MixedDataViewerDialog import MixedDataViewerDialog
+from ..Pins import DATAFRAME_PIN, MPL_FIGURE_PIN
 from ..UI.PropertiesDialog import PropertiesDialog
 
 
@@ -98,17 +99,17 @@ class UIDataAnalysisBaseNode(UINodeBase):
 
         # Check output pins first
         for pin in self._rawNode.outputs.values():
-            if pin.dataType == "DataFramePin":
+            if pin.dataType == DATAFRAME_PIN:
                 self.dataFramePins.append(pin)
-            elif pin.dataType == "MatplotlibFigurePin":
+            elif pin.dataType == MPL_FIGURE_PIN:
                 self.figurePins.append(pin)
 
         # If no output pins, check input pins
         if not self.dataFramePins and not self.figurePins:
             for pin in self._rawNode.inputs.values():
-                if pin.dataType == "DataFramePin":
+                if pin.dataType == DATAFRAME_PIN:
                     self.dataFramePins.append(pin)
-                elif pin.dataType == "MatplotlibFigurePin":
+                elif pin.dataType == MPL_FIGURE_PIN:
                     self.figurePins.append(pin)
 
         # Track dialog state (like OpenCV's displayImage)
@@ -221,9 +222,9 @@ class UIDataAnalysisBaseNode(UINodeBase):
             empty_pins_dict = {}
             # Add placeholder entries for pins without data
             for pin in self.dataFramePins:
-                empty_pins_dict[pin.name] = ("DataFramePin", pd.DataFrame())
+                empty_pins_dict[pin.name] = (DATAFRAME_PIN, pd.DataFrame())
             for pin in self.figurePins:
-                empty_pins_dict[pin.name] = ("MatplotlibFigurePin", None)
+                empty_pins_dict[pin.name] = (MPL_FIGURE_PIN, None)
             self.viewerDialog = MixedDataViewerDialog(empty_pins_dict, parent=None)
         elif has_dataframes and has_figures:
             # Mixed types - use MixedDataViewerDialog
@@ -282,13 +283,13 @@ class UIDataAnalysisBaseNode(UINodeBase):
             df = pin.getData()
             if df is not None:
                 dataframes_dict[pin.name] = df
-                pins_data_dict[pin.name] = ("DataFramePin", df)
+                pins_data_dict[pin.name] = (DATAFRAME_PIN, df)
 
         for pin in self.figurePins:
             fig = pin.getData()
             if fig is not None:
                 figures_dict[pin.name] = fig
-                pins_data_dict[pin.name] = ("MatplotlibFigurePin", fig)
+                pins_data_dict[pin.name] = (MPL_FIGURE_PIN, fig)
 
         # Update dialog based on type
         if isinstance(self.viewerDialog, DataFrameDialog):

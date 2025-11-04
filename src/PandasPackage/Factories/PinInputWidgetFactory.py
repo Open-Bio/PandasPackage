@@ -8,6 +8,7 @@ import time
 
 from uflow.UI.Widgets.InputWidgets import InputWidgetSingle
 from uflow.Core.Common import *
+from ..Pins import DATAFRAME_PIN
 from qtpy.QtWidgets import QTextEdit
 
 
@@ -137,9 +138,9 @@ class DynamicColumnSelectorWidget(InputWidgetSingle):
                 else self.owningNode
             )
 
-            # Look for DataFrame input pins
+            # 查找 DataFrame 输入引脚（使用常量，避免魔法字符串）
             for pin in rawNode.inputs.values():
-                if pin.dataType == "DataFramePin" and pin.hasConnections():
+                if pin.dataType == DATAFRAME_PIN and pin.hasConnections():
                     # Use currentData() instead of getData() to avoid triggering execution
                     df = pin.currentData()
                     if df is not None and not df.empty:
@@ -382,36 +383,24 @@ def getInputWidget(
         - 文件路径控件使用系统原生对话框，提供更好的用户体验
         - 动态列选择器提供智能的 DataFrame 列名建议
     """
-    if widgetVariant == "DynamicColumnSelectorWidget":
-        return DynamicColumnSelectorWidget(
+    # 使用注册表替代 if/elif 链，提高可扩展性
+    registry = {
+        "DynamicColumnSelectorWidget": lambda: DynamicColumnSelectorWidget(
             dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
-        )
-    elif widgetVariant == "TextEditWidget":
-        return TextEditWidget(
+        ),
+        "TextEditWidget": lambda: TextEditWidget(
             dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
-        )
-    elif widgetVariant == "FilePathWidget":
-        # 文件路径控件 - 使用系统原生对话框
-        return PathInputWidget(
-            mode="file", 
-            dataSetCallback=dataSetter, 
-            defaultValue=defaultValue, 
-            **kwds
-        )
-    elif widgetVariant == "PathWidget":
-        # 通用路径控件 - 使用系统原生对话框
-        return PathInputWidget(
-            mode="all", 
-            dataSetCallback=dataSetter, 
-            defaultValue=defaultValue, 
-            **kwds
-        )
-    elif widgetVariant == "FolderPathWidget":
-        # 文件夹路径控件 - 使用系统原生对话框
-        return PathInputWidget(
-            mode="directory", 
-            dataSetCallback=dataSetter, 
-            defaultValue=defaultValue, 
-            **kwds
-        )
-    return None
+        ),
+        "FilePathWidget": lambda: PathInputWidget(
+            mode="file", dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
+        ),
+        "PathWidget": lambda: PathInputWidget(
+            mode="all", dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
+        ),
+        "FolderPathWidget": lambda: PathInputWidget(
+            mode="directory", dataSetCallback=dataSetter, defaultValue=defaultValue, **kwds
+        ),
+    }
+
+    factory = registry.get(widgetVariant)
+    return factory() if factory else None
