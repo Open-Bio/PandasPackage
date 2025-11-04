@@ -106,15 +106,20 @@ class PlotViewerWidget(QtWidgets.QWidget):
                 self.infoLabel.setText(f"Invalid figure type: {type(figure).__name__}")
                 return
 
+            # Safely disconnect any existing callbacks and make current toolbar inert
+            self._safe_teardown()
+
             # Remove old canvas and toolbar if they exist
             if self.canvas is not None:
                 self.layout().removeWidget(self.canvas)
                 self.canvas.setParent(None)
                 self.canvas.deleteLater()
+                self.canvas = None
             if self.toolbar is not None:
                 self.layout().removeWidget(self.toolbar)
                 self.toolbar.setParent(None)
                 self.toolbar.deleteLater()
+                self.toolbar = None
             if self.placeholderLabel is not None:
                 self.layout().removeWidget(self.placeholderLabel)
                 self.placeholderLabel.setParent(None)
@@ -181,6 +186,9 @@ class PlotViewerWidget(QtWidgets.QWidget):
         if not MATPLOTLIB_AVAILABLE:
             return
 
+        # Safely disconnect and teardown first to avoid callbacks firing after deletion
+        self._safe_teardown()
+
         # Remove canvas and toolbar
         if self.canvas is not None:
             self.layout().removeWidget(self.canvas)
@@ -203,3 +211,49 @@ class PlotViewerWidget(QtWidgets.QWidget):
 
         self.current_figure = None
         self.infoLabel.setText("No plot")
+
+    def _safe_teardown(self):
+        """Disconnect Matplotlib callbacks and make toolbar inert before deletion."""
+        # Stop Qt interactions on the canvas
+        if getattr(self, "canvas", None) is not None:
+            try:
+                self.canvas.setMouseTracking(False)
+                self.canvas.setEnabled(False)
+            except Exception:
+                pass
+            # Disconnect all Matplotlib callbacks registered on this canvas
+            try:
+                registry = getattr(self.canvas, "callbacks", None)
+                if registry is not None and hasattr(registry, "callbacks"):
+                    for _event, mapping in list(registry.callbacks.items()):
+                        for cid in list(mapping.keys()):
+                            try:
+                                self.canvas.mpl_disconnect(cid)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+        # Make toolbar inert to avoid late set_message updates touching deleted QLabel
+        if getattr(self, "toolbar", None) is not None:
+            try:
+                self.toolbar.setVisible(False)
+            except Exception:
+                pass
+            try:
+                self.toolbar.set_message = lambda *a, **k: None
+            except Exception:
+                pass
+            try:
+                if hasattr(self.toolbar, "destroy"):
+                    self.toolbar.destroy()
+            except Exception:
+                pass
+
+    def closeEvent(self, event):
+        # Ensure teardown happens if the widget is closed via parent/dialog
+        try:
+            self.clear()
+        except Exception:
+            pass
+        super(PlotViewerWidget, self).closeEvent(event)
