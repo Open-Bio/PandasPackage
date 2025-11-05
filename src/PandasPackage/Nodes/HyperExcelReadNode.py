@@ -303,45 +303,52 @@ class HyperExcelRead(NodeBase):
 
     def postCreate(self, jsonTemplate=None):
         """Restore node state from serialized data."""
-        super(HyperExcelRead, self).postCreate(jsonTemplate)
-        
-        if jsonTemplate is None:
-            return
-        
-        # Restore sheet names and pin mappings
-        if "sheetNames" in jsonTemplate and "sheetPinMap" in jsonTemplate:
-            sheet_names = jsonTemplate.get("sheetNames", [])
-            sheet_pin_map = jsonTemplate.get("sheetPinMap", {})
+        try:
+            super(HyperExcelRead, self).postCreate(jsonTemplate)
             
-            if sheet_names:
-                # Restore pin mappings
-                self._sheetNames = sheet_names
-                self._sheetPinMap = sheet_pin_map
+            if jsonTemplate is None:
+                return
+            
+            # Restore sheet names and pin mappings
+            if "sheetNames" in jsonTemplate and "sheetPinMap" in jsonTemplate:
+                sheet_names = jsonTemplate.get("sheetNames", [])
+                sheet_pin_map = jsonTemplate.get("sheetPinMap", {})
                 
-                # Create pins that might not exist yet
-                for sheet_name in sheet_names:
-                    pin_name = sheet_pin_map.get(sheet_name)
-                    if pin_name:
-                        existing_pin = self.getPinByName(pin_name)
-                        if not existing_pin:
-                            self.createOutputPin(
-                                pin_name,
-                                "DataFramePin",
-                                defaultValue=pd.DataFrame(),
-                                structure=StructureType.Single,
-                            )
-                
-                self.autoAffectPins()
-        
-        # Restore last path
-        if "lastPath" in jsonTemplate:
-            self._lastPath = jsonTemplate["lastPath"]
-        
-        # Restore pin values from template
-        for outJson in jsonTemplate.get("outputs", []):
-            pin = self.getPinByName(outJson["name"])
-            if pin:
-                pin.deserialize(outJson)
+                if sheet_names:
+                    # Restore pin mappings
+                    self._sheetNames = sheet_names
+                    self._sheetPinMap = sheet_pin_map
+                    
+                    # Create pins that might not exist yet
+                    for sheet_name in sheet_names:
+                        pin_name = sheet_pin_map.get(sheet_name)
+                        if pin_name:
+                            existing_pin = self.getPinByName(pin_name)
+                            if not existing_pin:
+                                self.createOutputPin(
+                                    pin_name,
+                                    "DataFramePin",
+                                    defaultValue=pd.DataFrame(),
+                                    structure=StructureType.Single,
+                                )
+                    
+                    # Only call autoAffectPins if graph is valid
+                    if self.graph() is not None:
+                        self.autoAffectPins()
+            
+            # Restore last path
+            if "lastPath" in jsonTemplate:
+                self._lastPath = jsonTemplate["lastPath"]
+            
+            # Restore pin values from template
+            for outJson in jsonTemplate.get("outputs", []):
+                pin = self.getPinByName(outJson["name"])
+                if pin:
+                    pin.deserialize(outJson)
+        except Exception as e:
+            # Silently handle errors during deserialization to avoid issues
+            # during application shutdown/cleanup
+            pass
 
     @staticmethod
     def pinTypeHints():
