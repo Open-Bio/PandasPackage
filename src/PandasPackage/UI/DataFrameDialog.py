@@ -4,10 +4,11 @@ DataFrame preview dialog with advanced table features.
 Uses Qt Model/View architecture for better performance with large datasets.
 """
 
-from qtpy import QtWidgets, QtCore, QtGui
+from qtpy import QtWidgets, QtCore
 import pandas as pd
 from ._dialog_persistence import PersistentGeometryDialogMixin
 from ._pandas_table_model import PandasTableModel
+from .DataFrameViewerWidget import DataFrameViewerWidget
 
 
 class DataFrameDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
@@ -258,40 +259,10 @@ class MultiDataFrameDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
         self.tabWidget = QtWidgets.QTabWidget()
 
         for pin_name, dataframe in self.dataframes.items():
-            # Create a widget for each DataFrame
-            widget = QtWidgets.QWidget()
-            tabLayout = QtWidgets.QVBoxLayout(widget)
-
-            # Info label
-            infoLabel = QtWidgets.QLabel()
-            if dataframe is not None and not dataframe.empty:
-                rows, cols = dataframe.shape
-                memory_usage = dataframe.memory_usage(deep=True).sum() / 1024 / 1024
-                infoLabel.setText(
-                    f"Shape: {rows:,} rows × {cols} columns | Memory: {memory_usage:.2f} MB"
-                )
-            else:
-                infoLabel.setText("No data")
-            infoLabel.setStyleSheet("font-weight: bold; color: #666; padding: 5px;")
-            tabLayout.addWidget(infoLabel)
-
-            # Table view
-            model = PandasTableModel(dataframe)
-            proxyModel = QtCore.QSortFilterProxyModel()
-            proxyModel.setSourceModel(model)
-
-            tableView = QtWidgets.QTableView()
-            tableView.setModel(proxyModel)
-            tableView.setSortingEnabled(True)
-            tableView.setAlternatingRowColors(True)
-            tableView.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-            tableView.horizontalHeader().setStretchLastSection(True)
-            tableView.resizeColumnsToContents()
-
-            tabLayout.addWidget(tableView)
-
-            # Add tab
-            self.tabWidget.addTab(widget, pin_name)
+            # Create a dedicated viewer widget with pagination/search/statistics
+            viewer = DataFrameViewerWidget()
+            viewer.setDataFrame(dataframe if dataframe is not None else pd.DataFrame())
+            self.tabWidget.addTab(viewer, pin_name)
 
         layout.addWidget(self.tabWidget)
 
