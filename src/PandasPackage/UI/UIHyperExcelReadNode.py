@@ -2,7 +2,7 @@ from ..UI.UIDataAnalysisBaseNode import UIDataAnalysisBaseNode
 
 
 class UIHyperExcelReadNode(UIDataAnalysisBaseNode):
-    """UI wrapper for HyperExcelReadNode that handles dynamic pin updates."""
+    """UI wrapper for HyperExcelRead that handles dynamic pin updates."""
 
     def __init__(self, raw_node):
         super(UIHyperExcelReadNode, self).__init__(raw_node)

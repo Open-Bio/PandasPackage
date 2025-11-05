@@ -7,11 +7,11 @@ from uflow.Core.Common import *
 from uflow import getPinDefaultValueByType
 
 
-class HyperExcelReadNode(NodeBase):
+class HyperExcelRead(NodeBase):
     """Node that reads all sheets from an Excel file and creates dynamic output pins for each sheet."""
 
     def __init__(self, name):
-        super(HyperExcelReadNode, self).__init__(name)
+        super(HyperExcelRead, self).__init__(name)
         
         # Input pins
         self.pathPin = self.createInputPin(
@@ -21,6 +21,11 @@ class HyperExcelReadNode(NodeBase):
             callback=self.onPathChanged,
             structure=StructureType.Single,
         )
+        # Set FilePathWidget for path pin
+        self.pathPin.annotationDescriptionDict = {
+            PinSpecifiers.INPUT_WIDGET_VARIANT: "FilePathWidget"
+        }
+        
         self.headerPin = self.createInputPin(
             "header",
             "IntPin",
@@ -32,8 +37,14 @@ class HyperExcelReadNode(NodeBase):
             DEFAULT_IN_EXEC_NAME, "ExecPin", None, self.compute
         )
         
-        # Output pins - will be created dynamically
+        # Output pins - create a default DataFramePin output for preview functionality
         self.outExec = self.createOutputPin(DEFAULT_OUT_EXEC_NAME, "ExecPin")
+        self.defaultOutput = self.createOutputPin(
+            "data",
+            "DataFramePin",
+            defaultValue=pd.DataFrame(),
+            structure=StructureType.Single,
+        )
         
         # Track sheet names and pins mapping
         self._sheetNames = []  # List of sheet names in order
@@ -84,7 +95,27 @@ class HyperExcelReadNode(NodeBase):
             if pin.dataType == "DataFramePin"
         }
         
-        # Get new pin names
+        # Remove default "data" pin if sheets are detected
+        if sheet_names:
+            default_pin = self.getPinByName("data")
+            if default_pin and default_pin.dataType == "DataFramePin":
+                default_pin.kill()
+                # Remove from current_pin_names set
+                current_pin_names.discard("data")
+        else:
+            # No sheets, ensure default "data" pin exists
+            default_pin = self.getPinByName("data")
+            if not default_pin or default_pin.dataType != "DataFramePin":
+                # Create default "data" pin if it doesn't exist
+                self.defaultOutput = self.createOutputPin(
+                    "data",
+                    "DataFramePin",
+                    defaultValue=pd.DataFrame(),
+                    structure=StructureType.Single,
+                )
+                current_pin_names.add("data")
+        
+        # Get new pin names for sheets
         new_pin_names = set()
         sheet_to_pin_map = {}
         
@@ -95,8 +126,8 @@ class HyperExcelReadNode(NodeBase):
             new_pin_names.add(pin_name)
             sheet_to_pin_map[sheet_name] = pin_name
         
-        # Remove pins that are no longer needed
-        pins_to_remove = current_pin_names - new_pin_names
+        # Remove pins that are no longer needed (excluding default "data" pin)
+        pins_to_remove = current_pin_names - new_pin_names - {"data"}
         for pin_name in pins_to_remove:
             pin = self.getPinByName(pin_name)
             if pin and pin.dataType == "DataFramePin":
@@ -264,7 +295,7 @@ class HyperExcelReadNode(NodeBase):
 
     def serialize(self):
         """Serialize node state including sheet pin mappings."""
-        default = super(HyperExcelReadNode, self).serialize()
+        default = super(HyperExcelRead, self).serialize()
         default["sheetNames"] = self._sheetNames
         default["sheetPinMap"] = self._sheetPinMap
         default["lastPath"] = self._lastPath
@@ -272,7 +303,7 @@ class HyperExcelReadNode(NodeBase):
 
     def postCreate(self, jsonTemplate=None):
         """Restore node state from serialized data."""
-        super(HyperExcelReadNode, self).postCreate(jsonTemplate)
+        super(HyperExcelRead, self).postCreate(jsonTemplate)
         
         if jsonTemplate is None:
             return

@@ -8,8 +8,8 @@ def createUINode(raw_instance):
     if raw_instance.__class__.__name__ == "DataViewerNode":
         return UIDataViewerNode(raw_instance)
     
-    # Use custom UI for HyperExcelReadNode (handles dynamic pins)
-    if raw_instance.__class__.__name__ == "HyperExcelReadNode":
+    # Use custom UI for HyperExcelRead (handles dynamic pins)
+    if raw_instance.__class__.__name__ == "HyperExcelRead":
         return UIHyperExcelReadNode(raw_instance)
 
     # Default: all DataAnalysis nodes get base class with auto refresh button
