@@ -5,9 +5,9 @@ Uses tabs to organize multiple pins, with each tab displaying the appropriate
 viewer based on data type (DataFrame -> table, Figure -> plot).
 """
 
-from qtpy import QtWidgets, QtCore, QtGui
+from qtpy import QtWidgets, QtCore
 import pandas as pd
-from .DataFrameDialog import PandasTableModel
+from .DataFrameViewerWidget import DataFrameViewerWidget
 from .PlotViewerWidget import PlotViewerWidget
 from ._dialog_persistence import PersistentGeometryDialogMixin
 from ..Pins import DATAFRAME_PIN, MPL_FIGURE_PIN
@@ -73,65 +73,26 @@ class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
 
     def _createTabWidget(self, pin_name, pin_type, data):
         """Create a widget for a single pin based on its type."""
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-
         if pin_type == DATAFRAME_PIN:
-            # Create DataFrame viewer
-            widget = self._createDataFrameTab(pin_name, data)
+            return self._createDataFrameTab(pin_name, data)
         elif pin_type == MPL_FIGURE_PIN:
-            # Create Figure viewer
-            widget = self._createFigureTab(pin_name, data)
+            return self._createFigureTab(pin_name, data)
         else:
             # Unknown type - show error message
+            widget = QtWidgets.QWidget()
+            layout = QtWidgets.QVBoxLayout(widget)
+            layout.setContentsMargins(0, 0, 0, 0)
             errorLabel = QtWidgets.QLabel(f"Unknown pin type: {pin_type}")
             errorLabel.setAlignment(QtCore.Qt.AlignCenter)
             errorLabel.setStyleSheet("color: #f00; font-size: 14px;")
             layout.addWidget(errorLabel)
-
-        return widget
+            return widget
 
     def _createDataFrameTab(self, pin_name, dataframe):
-        """Create a tab widget for DataFrame display."""
-        widget = QtWidgets.QWidget()
-        tabLayout = QtWidgets.QVBoxLayout(widget)
-        tabLayout.setContentsMargins(5, 5, 5, 5)
-
-        # Info label
-        infoLabel = QtWidgets.QLabel()
-        if dataframe is not None and not dataframe.empty:
-            rows, cols = dataframe.shape
-            memory_usage = dataframe.memory_usage(deep=True).sum() / 1024 / 1024
-            infoLabel.setText(
-                f"Shape: {rows:,} rows × {cols} columns | Memory: {memory_usage:.2f} MB"
-            )
-        else:
-            infoLabel.setText("No data")
-        infoLabel.setStyleSheet("font-weight: bold; color: #666; padding: 5px;")
-        tabLayout.addWidget(infoLabel)
-
-        # Table view
-        model = PandasTableModel(dataframe if dataframe is not None else pd.DataFrame())
-        proxyModel = QtCore.QSortFilterProxyModel()
-        proxyModel.setSourceModel(model)
-
-        tableView = QtWidgets.QTableView()
-        tableView.setModel(proxyModel)
-        tableView.setSortingEnabled(True)
-        tableView.setAlternatingRowColors(True)
-        tableView.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
-        tableView.horizontalHeader().setStretchLastSection(True)
-        tableView.resizeColumnsToContents()
-
-        tabLayout.addWidget(tableView)
-
-        # Store model reference for updates
-        widget._model = model
-        widget._proxyModel = proxyModel
-        widget._tableView = tableView
-
-        return widget
+        """Create a tab widget for DataFrame display using reusable viewer widget."""
+        viewer = DataFrameViewerWidget()
+        viewer.setDataFrame(dataframe if dataframe is not None else pd.DataFrame())
+        return viewer
 
     def _createFigureTab(self, pin_name, figure):
         """Create a tab widget for Figure display."""
@@ -169,9 +130,8 @@ class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
 
         # Update existing widget
         if pin_type == DATAFRAME_PIN:
-            if hasattr(widget, '_model'):
-                widget._model.setDataFrame(data if data is not None else pd.DataFrame())
-                widget._tableView.resizeColumnsToContents()
+            if hasattr(widget, 'setDataFrame'):
+                widget.setDataFrame(data if data is not None else pd.DataFrame())
         elif pin_type == MPL_FIGURE_PIN:
             if hasattr(widget, '_plotViewer'):
                 widget._plotViewer.setFigure(data)
@@ -180,24 +140,6 @@ class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
         """Update all pins with new data."""
         for pin_name, (pin_type, data) in pins_data_dict.items():
             self.setPinData(pin_name, pin_type, data)
-
-    def restoreWindowGeometry(self):
-        """Restore window position and size from settings."""
-        # 统一通过 Mixin 恢复几何信息
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-        else:
-            self.centerOnScreen()
-
-    def centerOnScreen(self):
-        """Center the dialog on the screen."""
-        screen = QtWidgets.QApplication.primaryScreen()
-        if screen:
-            screenGeometry = screen.availableGeometry()
-            x = (screenGeometry.width() - self.width()) // 2
-            y = (screenGeometry.height() - self.height()) // 2
-            self.move(x, y)
 
     def closeEvent(self, event):
         """关闭时先清理 Figure 相关 viewer，再交由 Mixin 保存几何信息。"""
