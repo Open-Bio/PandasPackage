@@ -138,8 +138,26 @@ class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
 
     def updateAllPins(self, pins_data_dict):
         """Update all pins with new data."""
+        if not isinstance(pins_data_dict, dict):
+            return
+
+        # Add missing tabs or update existing ones
+        handled = set()
         for pin_name, (pin_type, data) in pins_data_dict.items():
+            if pin_name not in self.viewer_widgets:
+                widget = self._createTabWidget(pin_name, pin_type, data)
+                self.tabWidget.addTab(widget, pin_name)
+                self.viewer_widgets[pin_name] = (pin_type, widget)
             self.setPinData(pin_name, pin_type, data)
+            handled.add(pin_name)
+
+        # Remove tabs for pins that no longer exist
+        for pin_name in list(self.viewer_widgets.keys()):
+            if pin_name not in handled:
+                _, widget = self.viewer_widgets.pop(pin_name)
+                index = self.tabWidget.indexOf(widget)
+                if index >= 0:
+                    self.tabWidget.removeTab(index)
 
     def closeEvent(self, event):
         """关闭时先清理 Figure 相关 viewer，再交由 Mixin 保存几何信息。"""
@@ -157,4 +175,3 @@ class MixedDataViewerDialog(PersistentGeometryDialogMixin, QtWidgets.QDialog):
         super(MixedDataViewerDialog, self).closeEvent(event)
 
     # 接受/拒绝的保存逻辑由 Mixin 统一处理，无需重复实现
-

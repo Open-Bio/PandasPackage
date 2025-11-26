@@ -181,17 +181,13 @@ class UIDataAnalysisBaseNode(UINodeBase):
 
         for pin in self.dataFramePins:
             df = pin.getData()
-            # Include even empty DataFrames (they can be displayed)
-            if df is not None:
-                dataframes_dict[pin.name] = df
-                pins_data_dict[pin.name] = ("DataFramePin", df)
+            dataframes_dict[pin.name] = df
+            pins_data_dict[pin.name] = (DATAFRAME_PIN, df)
 
         for pin in self.figurePins:
             fig = pin.getData()
-            # Only include non-None figures (None means no plot generated yet)
-            if fig is not None:
-                figures_dict[pin.name] = fig
-                pins_data_dict[pin.name] = ("MatplotlibFigurePin", fig)
+            figures_dict[pin.name] = fig
+            pins_data_dict[pin.name] = (MPL_FIGURE_PIN, fig)
 
         # Only show warning if we have pins but no data
         # If there are no pins at all, don't show warning (node doesn't support preview)
@@ -212,9 +208,9 @@ class UIDataAnalysisBaseNode(UINodeBase):
                 return
 
         # Determine which dialog to use based on pin types
-        has_dataframes = len(dataframes_dict) > 0
-        has_figures = len(figures_dict) > 0
-        total_pins = len(pins_data_dict)
+        has_dataframes = len(self.dataFramePins) > 0
+        has_figures = len(self.figurePins) > 0
+        total_pins = len(self.dataFramePins) + len(self.figurePins)
         
         # If no data but we have pins, create empty dialog with placeholder
         if not pins_data_dict and has_any_pins:
@@ -281,26 +277,24 @@ class UIDataAnalysisBaseNode(UINodeBase):
 
         for pin in self.dataFramePins:
             df = pin.getData()
-            if df is not None:
-                dataframes_dict[pin.name] = df
-                pins_data_dict[pin.name] = (DATAFRAME_PIN, df)
+            dataframes_dict[pin.name] = df
+            pins_data_dict[pin.name] = (DATAFRAME_PIN, df)
 
         for pin in self.figurePins:
             fig = pin.getData()
-            if fig is not None:
-                figures_dict[pin.name] = fig
-                pins_data_dict[pin.name] = (MPL_FIGURE_PIN, fig)
+            figures_dict[pin.name] = fig
+            pins_data_dict[pin.name] = (MPL_FIGURE_PIN, fig)
 
         # Update dialog based on type
         if isinstance(self.viewerDialog, DataFrameDialog):
             # Single DataFrame dialog
             if dataframes_dict:
-                pin_name, dataframe = list(dataframes_dict.items())[0]
+                pin_name, dataframe = next(iter(dataframes_dict.items()))
                 self.viewerDialog.setDataFrame(dataframe)
         elif isinstance(self.viewerDialog, FigureDialog):
             # Single Figure dialog
             if figures_dict:
-                pin_name, figure = list(figures_dict.items())[0]
+                pin_name, figure = next(iter(figures_dict.items()))
                 self.viewerDialog.setFigure(figure)
         elif isinstance(self.viewerDialog, MultiDataFrameDialog):
             # Multi DataFrame dialog - need to recreate (simpler than updating tabs)
